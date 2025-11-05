@@ -21,6 +21,8 @@ if (process.env.NODE_ENV === "production") {
     app.use(consoleLogger);
 }
 
+
+
 // Body parsing middleware
 app.use(express.json());
 

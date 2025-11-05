@@ -4,6 +4,7 @@ jest.mock("../src/config/firebaseConfig", () => ({
   },
 }));
 
+
 import { Request, Response, NextFunction } from "express";
 import { setCustomClaims } from "../src/api/v1/controllers/adminController";
 import { auth } from "../src/config/firebaseConfig";
