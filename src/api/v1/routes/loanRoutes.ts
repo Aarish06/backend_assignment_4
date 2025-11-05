@@ -4,7 +4,7 @@ import isAuthorized from "../middleware/authorize";
 const express = require('express');
 const router = express.Router();
 
-router.post('/', authenticate, isAuthorized({ hasRole: ["admin", "manager"] }),createLoan);
+router.post('/', authenticate, isAuthorized({ hasRole: ["admin", "manager","user"] }),createLoan);
 router.put('/:id/review',
     authenticate,
     isAuthorized({ hasRole: ["admin", "manager"], allowSameUser: true }), reviewLoan);
