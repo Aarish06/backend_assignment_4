@@ -1,56 +1,119 @@
-// Mock Firebase auth before import
-jest.mock("../src/config/firebaseConfig", () => ({
-  auth: {
-    verifyIdToken: jest.fn(),
-  },
-}));
-
-import { Request, Response, NextFunction } from "express";
+import { Request, Response } from "express";
 import authenticate from "../src/api/v1/middleware/authenticate";
 import { auth } from "../src/config/firebaseConfig";
+import { AuthenticationError } from "../src/api/v1/errors/errors";
 
-describe("authenticate middleware (basic)", () => {
-  const next = jest.fn() as NextFunction;
-  const makeRes = () => ({ locals: {} } as unknown as Response);
+// Mock Firebase auth
+jest.mock("../src/config/firebaseConfig", () => ({
+    auth: {
+        verifyIdToken: jest.fn(),
+    },
+}));
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+describe("authenticate middleware", () => {
+    let mockRequest: Partial<Request>;
+    let mockResponse: Partial<Response>;
+    let nextFunction: jest.Mock;
 
-  test("should allow valid token", async () => {
-    const req = {
-      headers: { authorization: "Bearer validToken" },
-    } as unknown as Request;
-    const res = makeRes();
+    beforeEach(() => {
+        mockRequest = {
+            headers: {},
+        };
+        mockResponse = {
+            locals: {},
+        };
+        nextFunction = jest.fn();
+    });
 
-    (auth.verifyIdToken as jest.Mock).mockResolvedValue({ uid: "user1", role: "officer" });
+    it("should pass AuthenticationError to next() when no token is provided", async () => {
+        // Act
+        await authenticate(
+            mockRequest as Request,
+            mockResponse as Response,
+            nextFunction
+        );
 
-    await authenticate(req, res, next);
+        // Assert
+        expect(nextFunction).toHaveBeenCalledWith(
+            expect.any(AuthenticationError)
+        );
+        const error = nextFunction.mock.calls[0][0];
+        expect(error.message).toBe("Unauthorized: No token provided");
+        expect(error.code).toBe("TOKEN_NOT_FOUND");
+        expect(error.statusCode).toBe(401);
+    });
 
-    expect(auth.verifyIdToken).toHaveBeenCalledWith("validToken");
-    expect(res.locals.uid).toBe("user1");
-    expect(res.locals.role).toBe("officer");
-    expect(next).toHaveBeenCalled();
-  });
+    it("should pass AuthenticationError to next() when token verification fails", async () => {
+        // Arrange
+        mockRequest.headers = {
+            authorization: "Bearer invalid-token",
+        };
 
-  test("should handle missing token", async () => {
-    const req = { headers: {} } as unknown as Request;
-    const res = makeRes();
+        (auth.verifyIdToken as jest.Mock).mockRejectedValueOnce(
+            new Error("Invalid token")
+        );
 
-    await authenticate(req, res, next);
+        // Act
+        await authenticate(
+            mockRequest as Request,
+            mockResponse as Response,
+            nextFunction
+        );
 
-    expect(next).toHaveBeenCalledWith(expect.any(Error));
-  });
+        // Assert
+        expect(nextFunction).toHaveBeenCalledWith(
+            expect.any(AuthenticationError)
+        );
+    });
 
-  test("should handle invalid token", async () => {
-    const req = { headers: { authorization: "Bearer badToken" } } as unknown as Request;
-    const res = makeRes();
+    it("should call next() and set user data when token is valid", async () => {
+        // Arrange
+        mockRequest.headers = {
+            authorization: "Bearer valid-token",
+        };
 
-    (auth.verifyIdToken as jest.Mock).mockRejectedValue(new Error("invalid token"));
+        (auth.verifyIdToken as jest.Mock).mockResolvedValueOnce({
+            uid: "test-uid",
+            role: "admin",
+        });
 
-    await authenticate(req, res, next);
+        // Act
+        await authenticate(
+            mockRequest as Request,
+            mockResponse as Response,
+            nextFunction
+        );
 
-    expect(auth.verifyIdToken).toHaveBeenCalledWith("badToken");
-    expect(next).toHaveBeenCalledWith(expect.any(Error));
-  });
+        // Assert
+        expect(auth.verifyIdToken).toHaveBeenCalledWith("valid-token");
+        expect(mockResponse.locals).toEqual({
+            uid: "test-uid",
+            role: "admin",
+        });
+
+        // Called without error
+        expect(nextFunction).toHaveBeenCalledWith();
+    });
+
+    it("should handle malformed authorization header", async () => {
+        // Arrange
+        // Missing "Bearer " prefix
+        mockRequest.headers = {
+            authorization: "InvalidFormat",
+        };
+
+        // Act
+        await authenticate(
+            mockRequest as Request,
+            mockResponse as Response,
+            nextFunction
+        );
+
+        // Assert
+        expect(nextFunction).toHaveBeenCalledWith(
+            expect.any(AuthenticationError)
+        );
+        const error = nextFunction.mock.calls[0][0];
+        expect(error.message).toBe("Unauthorized: No token provided");
+    });
 });
